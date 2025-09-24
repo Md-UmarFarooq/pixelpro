@@ -427,7 +427,7 @@
 
 @media (max-width: 480px) {
     .mainContent {
-        min-width: 95vw; 
+        width: 50vw; 
         min-height: 40vh; 
         border-radius: 6px; 
     }
