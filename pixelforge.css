@@ -596,9 +596,12 @@
 
 
 @media (max-width: 980px) {
+    .root{
+        min-height: 110vh;
+    }
     .convertAll-container{
         right: 45vw;
-        top: 93vh;
+        top: 95vh;
         height:7vh;
     }
     .back-container{
@@ -616,6 +619,9 @@
 
 
 @media (max-width: 768px) {
+    .root{
+        min-height: 120vh;
+    }
     .header {
         min-height: 23vh; 
         flex-direction: column;
@@ -644,7 +650,7 @@
     }
     .convertAll-container{
         right: 40vw;
-        top: 106vh;
+        top: 108vh;
     }
     .pixels-placeholder{
     font-size: clamp(0.95rem, 0.8vw, 1.1rem);
@@ -658,4 +664,3 @@
         border-radius: 6px; 
     }
 }
-
