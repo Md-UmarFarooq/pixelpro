@@ -623,7 +623,7 @@
         min-height: 120vh;
     }
     .mainContent-container{
-        align-items: flex-start;
+        min-height: 55vh;
     }
     .header {
         min-height: 20vh; 
@@ -647,7 +647,6 @@
         min-width:90vw; 
         min-height:50vh; 
         border-radius:8px;
-        margin-top: 8vh;
     }
     .data-table-pixel{
         font-size: clamp(0.65rem, 0.75vw, 0.8rem);
