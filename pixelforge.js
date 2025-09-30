@@ -152,6 +152,8 @@ var appendBackContainer=async()=>{
         var table=document.querySelector(".data-table");
         table.remove();
         showInsideBoxElements();
+        mainContentPixels.style.display="none";
+        lockProcess=false;
         mainContent.classList.remove("transform");
         mainContent.classList.add("drag");
         container.remove();
@@ -316,7 +318,6 @@ for(let i=0;i<convertButtons.length;i++){
         var row=document.querySelectorAll(".data-table-row")[i+1];
         var width=parseInt(row.querySelectorAll(".data-table-pixel")[0].value);
         clicked.add(i);
-        console.log("Clicked row button:", index); // DEBUG
         const convert = row.querySelector(".data-table-convert"); 
         convert.classList.add("loading");
         if(width<=maxParallelWidth){
