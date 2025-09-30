@@ -75,6 +75,7 @@
 .back-container{
     width: 7vw;
     display: flex;
+    position: absolute;
     top: 13vh;
     left: 3vw;
 }
@@ -657,3 +658,4 @@
         border-radius: 6px; 
     }
 }
+
