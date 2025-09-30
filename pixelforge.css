@@ -623,10 +623,10 @@
         min-height: 120vh;
     }
     .header {
-        min-height: 23vh; 
+        min-height: 20vh; 
         flex-direction: column;
+        justify-content: space-around;
         padding: 0.5vw;
-        gap: 0.5vh;
     }
     .header-logo-container {
         width: 25%;
