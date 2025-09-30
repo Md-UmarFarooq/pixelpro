@@ -35,19 +35,25 @@ write();
 //HEADER PROCESSTYPE
 
 headerProcess.addEventListener("click",switchProcess=()=>{
+    if(lockProcess){return;}
     var elements=headerProcess.children;
-    console.log(elements[0].innerText)
+    var mainContentPixels=document.querySelector(".mainContent-pixels");
     if(elements[0].innerText=="Image"){
         elements[0].innerText="Pixels";
-        elements[2].innerText="Image"
+        elements[2].innerText="Image";
+        hideInsideBoxElements();
+        mainContentPixels.style.display="flex";
+        mainContentPixels.classList.add("styles");
     }else if(elements[0].innerText=="Pixels"){
         elements[0].innerText="Image";
         elements[2].innerText="Pixels"
+        showInsideBoxElements();
+        mainContentPixels.style.display="none";
     }
 });
 
 
-//mainContent dragginf files
+//mainContent dragging files
 
 mainContent.classList.add("drag");
 
@@ -69,13 +75,15 @@ var showInsideBoxElements=()=>{
     }
 }
 
-var rows=[];
 
 mainContentPlaceholder1Btn.addEventListener("click",()=>{
     fileInput.value="";
 })
 
+var selectedFiles=[];
+
 fileInput.addEventListener("change",(e)=>{
+    selectedFiles=Array.from(e.target.files);
     handleSelectedFiles(e.target.files);
 })
 
@@ -85,11 +93,13 @@ mainContent.addEventListener("dragover",(e)=>{
 });
 
 mainContent.addEventListener("dragleave",(e)=>{
+    e.preventDefault();
     mainContent.classList.remove("drag-hover");
 });
 
 mainContent.addEventListener("drop",(e)=>{
     e.preventDefault(); 
+    selectedFiles=Array.from(e.dataTransfer.files);
     if(e.dataTransfer.files.length==0){return;}
     var existingTable=mainContent.querySelector(".data-table");
     if(existingTable){
@@ -102,9 +112,13 @@ mainContent.addEventListener("drop",(e)=>{
     }
 });
 
+var lockProcess=false;
+
 var handleSelectedFiles=async(files)=>{
     if(files.length>10){alert("You can batch only upto 10 files!");return;}
-    if(!checkFiles(files)){alert("Please select image files only!");return;}
+    if(headerProcess.children[0].innerText=="Image"){
+    if(!checkFilesForImageToPixels(files)){alert("Please select image files only!");return;}
+    lockProcess=true;
     hideInsideBoxElements();
     mainContent.classList.remove("drag");
     mainContent.classList.toggle("transform");
@@ -117,8 +131,11 @@ var handleSelectedFiles=async(files)=>{
     for(var i=0;i<files.length;i++){
         await createRow(table,files[i],i);
     }
+     createConvertQueue();
      appendBackContainer();
      appendConvertAllButton();
+     createConvertAllFunc();
+}
 }
 
 
@@ -153,7 +170,7 @@ var appendConvertAllButton=async()=>{
     root.append(container);
 }
 
-var checkFiles=(files)=>{
+var checkFilesForImageToPixels=(files)=>{
     for(let i = 0;i<files.length;i++){
         const file=files[i];
         if(file.type.startsWith("image/")){
@@ -272,25 +289,269 @@ var createRow=async (container,file,k)=>{
     row.append(convertContainer);
 
     var copyContainer=document.createElement("div");
-    var copy=document.createElement("button");
-    copy.innerText="Copy";
-    copy.classList.add("data-table-copy");
-    copyContainer.append(copy);
     row.append(copyContainer);
 
     var downloadContainer=document.createElement("div");
-    var download=document.createElement("button");
-    download.innerText="Downlaod";
-
-    download.classList.add("data-table-download");
-    downloadContainer.append(download);
     row.append(downloadContainer);
     container.append(row);
 }
 
 
+var smallQueue=[];
+var trackFinished=[];
+let clicked=new Set();
+let processing=new Set();
+var maxParallelWidth=2000;
+var bigQueue = [];
+var processingBig = false;
+var processingSmall=false;
+
+var createConvertQueue=()=>{
+var convertButtons=document.querySelectorAll(".data-table-convert");
+
+
+for(let i=0;i<convertButtons.length;i++){
+    convertButtons[i].addEventListener("click",async()=>{
+        if(clicked.has(i)){return;}
+        var row=document.querySelectorAll(".data-table-row")[i+1];
+        var width=parseInt(row.querySelectorAll(".data-table-pixel")[0].value);
+        clicked.add(i);
+        const convert = row.querySelector(".data-table-convert"); 
+        convert.classList.add("loading");
+        if(width<=maxParallelWidth){
+            smallQueue.push(i);
+            if(!processingBig&&!processingSmall){
+                await processSmallQueue();
+            }
+        }else{
+            bigQueue.push(i);
+            if(!processingSmall&&!processingBig){
+                await processBigQueue();
+            }
+        }
+
+    });
+}
+}
+
+var processBigQueue=async()=>{
+    if(processingBig){return;}
+    processingBig=true;
+    while(bigQueue.length > 0){
+        var idx=bigQueue.shift(); 
+        await imageToPixels(idx)
+    }
+    processingBig=false;
+    if(smallQueue.length>0){
+        await processSmallQueue();
+    }
+}
+
+var processSmallQueue=async()=>{
+    if(processingSmall){return;}
+    const promises=[];
+    processingSmall=true;
+    while(smallQueue.length>0){
+        var idx=smallQueue.shift();
+        promises.push(imageToPixels(idx));
+    }
+    await Promise.all(promises);
+    processingSmall=false;
+    if(bigQueue.length>0){
+        await processBigQueue();
+    }
+}
+
+// ===== Worker Pool =====
+const createWorkerPool = (numWorkers) => {
+    const pool = [];
+    for (let i = 0; i < numWorkers; i++) {
+        const worker = new Worker(URL.createObjectURL(new Blob([`
+            self.onmessage = function(e) {
+                const { buffer } = e.data;
+                const data = new Uint8ClampedArray(buffer);
+                const result = new Uint8ClampedArray(data.length);
+                result.set(data);
+                self.postMessage({ buffer: result.buffer }, [result.buffer]);
+            };
+        `], { type: "application/javascript" })));
+        pool.push(worker);
+    }
+    return pool;
+};
+
+let workerPool = null;
+let conversionQueue = Promise.resolve(); // Queue system
+
+// ===== Main Function =====
+async function imageToPixels(z) {
+    conversionQueue = conversionQueue.then(() => new Promise((resolve) => {
+        const rows = document.querySelectorAll(".data-table-row");
+        const row = rows[z + 1];
+        const inputs = row.querySelectorAll(".data-table-pixel");
+        const width = parseInt(inputs[0].value);
+        const height = parseInt(inputs[1].value);
+        const type = row.querySelector(".data-table-type").value;
+        const file = selectedFiles[z];
+
+        const img = new Image();
+        img.onload = async () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // Init worker pool once
+            if (!workerPool) {
+                let numWorkers = Math.max(1, navigator.hardwareConcurrency || 4);
+                numWorkers = Math.min(numWorkers, 8);
+                workerPool = createWorkerPool(numWorkers);
+            }
+
+            const tileSize = 256;
+            const tiles = [];
+            for (let y = 0; y < height; y += tileSize) {
+                for (let x = 0; x < width; x += tileSize) {
+                    const w = Math.min(tileSize, width - x);
+                    const h = Math.min(tileSize, height - y);
+                    const tileData = ctx.getImageData(x, y, w, h);
+                    tiles.push({ x, y, w, h, data: tileData });
+                }
+            }
+
+            const finalBuffer = new Uint8ClampedArray(width * height * 4);
+
+            // Process tiles with worker pool
+            for (let t = 0; t < tiles.length; t++) {
+                const tile = tiles[t];
+                const worker = workerPool[t % workerPool.length];
+
+                await new Promise(res => {
+                    worker.onmessage = (e) => {
+                        const result = new Uint8ClampedArray(e.data.buffer);
+                        for (let rowIdx = 0; rowIdx < tile.h; rowIdx++) {
+                            const srcStart = rowIdx * tile.w * 4;
+                            const destStart = ((tile.y + rowIdx) * width + tile.x) * 4;
+                            finalBuffer.set(result.subarray(srcStart, srcStart + tile.w * 4), destStart);
+                        }
+                        var convert=rows[z+1].children[4];
+                        convert.innerText = "Convert";
+                        convert.classList.remove("loading");
+                        res();
+                    };
+                    worker.postMessage({ buffer: tile.data.data.buffer }, [tile.data.data.buffer]);
+                });
+            }
+
+            // ===== Create Download Button =====
+            const downloadBtn = document.createElement("button");
+            downloadBtn.classList.add("data-table-download");
+            downloadBtn.innerText = "Download";
+            row.children[5].append(downloadBtn);
+
+            downloadBtn.addEventListener("click", () => {
+                const CHUNK_SIZE = 100000; // pixels per chunk
+                const blobParts = [];
+
+                for (let i = 0; i < finalBuffer.length; i += CHUNK_SIZE * 4) {
+                    const end = Math.min(i + CHUNK_SIZE * 4, finalBuffer.length);
+                    const chunk = [];
+                    for (let j = i; j < end; j += 4) {
+                        const r = finalBuffer[j], g = finalBuffer[j + 1], b = finalBuffer[j + 2];
+                        if (type === "RGB") chunk.push(`rgb(${r},${g},${b})`);
+                        else if (type === "HEX") chunk.push(`#${((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1)}`);
+                        else if (type === "HSL") {
+                            let r1 = r/255, g1 = g/255, b1 = b/255;
+                            let max = Math.max(r1,g1,b1), min = Math.min(r1,g1,b1);
+                            let h, s, l = (max + min)/2;
+                            if(max === min){ h=s=0; }
+                            else {
+                                let d = max - min;
+                                s = l > 0.5 ? d/(2-max-min) : d/(max+min);
+                                switch(max) {
+                                    case r1: h=(g1-b1)/d + (g1<b1?6:0); break;
+                                    case g1: h=(b1-r1)/d + 2; break;
+                                    case b1: h=(r1-g1)/d + 4; break;
+                                }
+                                h /= 6;
+                            }
+                            chunk.push(`hsl(${Math.round(h*360)},${Math.round(s*100)}%,${Math.round(l*100)}%)`);
+                        }
+                    }
+                    blobParts.push(chunk.join("\n"));
+                }
+
+                const blob = new Blob(blobParts, { type: "text/plain" });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = file.name.replace(/\.[^/.]+$/, "") + "_pixels.txt";
+                link.click();
+            });
+
+            console.log("File:", file.name, "processed and ready for download!");
+            resolve();
+        };
+
+        img.src = URL.createObjectURL(file);
+    }));
+
+    return conversionQueue;
+}
+
+var clickedConvertAll=false;
+var createConvertAllFunc=()=>{
+    var convertAll=document.querySelector(".convertAll");
+    convertAll.addEventListener("click",async()=>{
+        if(clickedConvertAll==false){
+            convertAll.classList.add("loading");
+            convertAll.innerText = "Converting...";
+            for(var i=0;i<selectedFiles.length;i++){
+                if(clicked.has(i)){continue;}
+                var row=document.querySelectorAll(".data-table-row")[i+1];
+                var width=parseInt(row.querySelectorAll(".data-table-pixel")[0].value);
+                if(width<=maxParallelWidth){
+                    smallQueue.push(i);
+                    if(!processingBig&&!processingSmall){
+                        await processSmallQueue();
+                    }
+                }else{
+                    bigQueue.push(i);
+                    if(!processingSmall&&!processingBig){
+                        await processBigQueue();
+                    }
+                }
+            }
+            clickedConvertAll=true;
+            convertAll.classList.remove("loading");
+            convertAll.innerText = "Convert All";
+        }
+    })
+}
+
+
+
+/*
 
 
 
 
+var copy=document.createElement("button");
+    copy.innerText="Copy";
+    copy.classList.add("data-table-copy");
+    copyContainer.append(copy);
 
+
+var download=document.createElement("button");
+download.classList.add("data-table-download");
+    download.innerText="Downlaod";
+    downloadContainer.append(download);
+
+
+*/
+
+var mainContentPixels=document.querySelector(".mainContent-pixels");
+
+headerProcess.addEventListener("click",displayChooseOptions=()=>{
+
+});
