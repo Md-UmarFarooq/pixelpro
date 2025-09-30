@@ -663,4 +663,8 @@
         min-height: 40vh; 
         border-radius: 6px; 
     }
+    .convertAll-container{
+        right: 40vw;
+        top: 106vh;
+    }
 }
